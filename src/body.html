@@ -1,0 +1,122 @@
+<div class="wrap">
+
+<header class="masthead">
+  <div class="flag">
+    <h1>Hudson Float Plan</h1>
+    <span class="hull">Pier 66 &middot; Chelsea</span>
+  </div>
+  <p>Complete this plan before you cast off. The page reads the tide and the current from NOAA, and the wind from the National Weather Service.</p>
+</header>
+
+<main>
+
+<!-- 1. WINDOW -->
+<section id="sec-window">
+  <div class="shead"><h2>Sail window</h2><span class="src">You give the data</span></div>
+  <div class="grid">
+    <label class="f span2"><span>Date</span><input type="date" id="f-date"></label>
+    <label class="f"><span>Cast off</span><input type="time" id="f-depart" step="300"></label>
+    <label class="f"><span>Back at the dock</span><input type="time" id="f-return" step="300"></label>
+  </div>
+  <dl class="readout" id="ro-window"></dl>
+</section>
+
+<!-- 2. TIDE + CURRENT -->
+<section id="sec-current">
+  <div class="shead"><h2>Tide and current</h2><span class="src auto" id="src-current">NOAA</span></div>
+  <div id="tide-events"></div>
+  <figure>
+    <svg class="strip" id="strip" viewBox="0 0 660 190" role="img" aria-labelledby="strip-cap"></svg>
+    <div class="key">
+      <span><i style="background:var(--flood)"></i>Flood. The current sets up-river, 026&deg;.</span>
+      <span><i style="background:var(--ebb)"></i>Ebb. The current sets down-river, 212&deg;.</span>
+    </div>
+    <figcaption id="strip-cap"></figcaption>
+  </figure>
+  <div class="scroll"><table id="tbl-current">
+    <thead><tr><th>Time</th><th>Current</th><th>Drift</th><th>Wind</th><th>Wind vs current</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</section>
+
+<!-- 3. WIND -->
+<section id="sec-wind">
+  <div class="shead"><h2>Wind and weather</h2><span class="src auto" id="src-wind">NWS OKX 33,44</span></div>
+  <p class="fcstline" id="fcstline">The page is reading the forecast.</p>
+  <div class="grid three">
+    <label class="f"><span>Wind from</span>
+      <select id="f-winddir">
+        <option value="">Not given</option>
+        <option value="0">N &middot; 000&deg;</option><option value="22.5">NNE &middot; 023&deg;</option>
+        <option value="45">NE &middot; 045&deg;</option><option value="67.5">ENE &middot; 068&deg;</option>
+        <option value="90">E &middot; 090&deg;</option><option value="112.5">ESE &middot; 113&deg;</option>
+        <option value="135">SE &middot; 135&deg;</option><option value="157.5">SSE &middot; 158&deg;</option>
+        <option value="180">S &middot; 180&deg;</option><option value="202.5">SSW &middot; 203&deg;</option>
+        <option value="225">SW &middot; 225&deg;</option><option value="247.5">WSW &middot; 248&deg;</option>
+        <option value="270">W &middot; 270&deg;</option><option value="292.5">WNW &middot; 293&deg;</option>
+        <option value="315">NW &middot; 315&deg;</option><option value="337.5">NNW &middot; 338&deg;</option>
+      </select>
+    </label>
+    <label class="f"><span>Speed (kt)</span><input type="number" id="f-windlo" min="0" max="60" step="1" placeholder="8"></label>
+    <label class="f"><span>Gusting to (kt)</span><input type="number" id="f-windhi" min="0" max="80" step="1" placeholder="14"></label>
+    <label class="f"><span>Expected shift</span>
+      <select id="f-shift"><option value="">Steady</option><option>Veers, clockwise</option><option>Backs, anticlockwise</option><option>Increases</option><option>Decreases</option><option>Sea breeze fills in</option></select>
+    </label>
+    <label class="f"><span>Sky</span>
+      <select id="f-sky"><option value="">Not given</option><option>Clear</option><option>Partly cloudy</option><option>Overcast</option><option>Rain</option><option>Fog or haze</option></select>
+    </label>
+    <label class="f"><span>Visibility</span>
+      <select id="f-vis"><option value="">Not given</option><option>Good, more than 5 nm</option><option>Moderate, 1 to 5 nm</option><option>Poor, less than 1 nm</option></select>
+    </label>
+    <label class="f"><span>Air temp (&deg;F)</span><input type="number" id="f-airtemp" step="1" placeholder="72"></label>
+    <label class="f"><span>Water temp (&deg;F)</span><input type="number" id="f-watertemp" step="1" placeholder="68"></label>
+    <label class="f"><span>Thunderstorm risk</span>
+      <select id="f-storm"><option value="">None in the forecast</option><option>Possible later</option><option>Likely in the window</option></select>
+    </label>
+    <label class="f span2"><span>Marine warning</span>
+      <select id="f-advisory"><option value="">None</option><option>Small Craft Advisory</option><option>Special Marine Warning</option><option>Gale Warning</option></select>
+    </label>
+    <label class="f"><span>Forecast time</span><input type="time" id="f-fcsttime" step="300"></label>
+    <label class="f span2"><span>Forecast source</span><input type="text" id="f-fcstsrc" placeholder="NWS marine ANZ338"></label>
+  </div>
+  <details class="paste-wrap">
+    <summary>Use a different forecast</summary>
+    <div class="paste">
+      <label class="f"><span>Paste a forecast. The page fills the fields above.</span>
+        <textarea id="f-paste" rows="3" placeholder="SW winds 10 to 15 kt, gusts to 20 kt. Becoming W after 3 PM."></textarea></label>
+      <p class="readback" id="readback">Use this when you trust another source, or when the date is beyond the NWS forecast. The page reads a marine forecast, a point forecast, a METAR line or a Windfinder row.</p>
+      <div class="srclinks">
+        <a href="https://forecast.weather.gov/shmrn.php?mz=anz338" target="_blank" rel="noopener">NWS marine ANZ338</a>
+        <a href="https://www.windfinder.com/forecast/new_york_city" target="_blank" rel="noopener">Windfinder</a>
+        <a href="https://www.ndbc.noaa.gov/station_page.php?station=bgnn4" target="_blank" rel="noopener">Bergen Point buoy</a>
+      </div>
+    </div>
+  </details>
+
+  <div class="rose-row">
+    <svg class="rose" id="rose" width="118" height="118" viewBox="0 0 118 118" role="img" aria-labelledby="rose-text"></svg>
+    <p class="rose-text" id="rose-text">Select a wind direction. The page then compares it with the current at cast off.</p>
+  </div>
+</section>
+
+<!-- 4. RECOMMENDATION -->
+<section id="sec-rec" class="rec">
+  <div class="shead"><h2>Recommended plan</h2><span class="src auto">The page calculates this</span></div>
+  <div class="callout">
+    <div class="lead" id="rec-lead">Give a date and a sail window.</div>
+    <p class="why" id="rec-why"></p>
+  </div>
+  <ol class="steps" id="rec-steps"></ol>
+  <div class="flags" id="rec-flags"></div>
+  <div id="sailplan"></div>
+</section>
+
+</main>
+
+<footer>
+  The page reads the current from NOAA harmonic station <span class="mono">NYH1928</span>, Hudson River at Pier 92, 6&nbsp;ft bin. This is the nearest current station to Pier 66, about 1.3&nbsp;nm up-river. The mean flood sets 026&deg;. The mean ebb sets 212&deg;. It reads the tide from NOAA station <span class="mono">8518750</span>, The Battery. It reads the wind from the National Weather Service, gridpoint <span class="mono">OKX 33,44</span>. The NWS forecast reaches about 7 days ahead. The NOAA predictions reach much further.
+  <br><br>
+  The tide and the current are astronomical predictions. Wind, rain and river run-off change the real water. On the Hudson the ebb is stronger and longer than the flood. The wind is a forecast, and a forecast is not a measurement. Use each number as a start point, not as a promise. Take the conditions and the go or no-go decision from the dock.
+</footer>
+
+</div>
