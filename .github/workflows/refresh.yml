@@ -42,8 +42,12 @@ jobs:
             echo "nothing changed"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Author as the account that owns REFRESH_TOKEN, not as the bot. The
+          # 60-day inactivity timer keys off real user activity, and a bot-authored
+          # commit leaves that ambiguous. The noreply address keeps a private email
+          # out of roughly 2,900 automated commits a year.
+          git config user.name "NathanielOstrer"
+          git config user.email "4533775+NathanielOstrer@users.noreply.github.com"
           git add docs
           git commit -m "data: $(date -u +%Y-%m-%dT%H:%MZ)"
           git push

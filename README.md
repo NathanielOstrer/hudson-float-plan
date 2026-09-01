@@ -9,7 +9,11 @@ which way to sail, when to turn around, and what stops the sail.
 It records conditions and navigation only. There are no fields for names,
 telephone numbers or contacts.
 
-**Live at [nathanielostrer.github.io/hudson-float-plan](https://nathanielostrer.github.io/hudson-float-plan/)**
+**Live at [nathanielostrer.com/hudson-float-plan](https://nathanielostrer.com/hudson-float-plan/)**
+
+The user site `NathanielOstrer.github.io` carries a `CNAME` for
+`nathanielostrer.com`, so every project site on this account is published under
+that domain. `nathanielostrer.github.io/hudson-float-plan/` redirects there.
 
 ## How it works
 
