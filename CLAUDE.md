@@ -89,8 +89,16 @@ lives at `~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-mac/he
 
 ## Next steps
 
-- Verify the first Pages deploy end-to-end from a phone, and confirm the page
-  paints before the data file lands.
+- Open the live site on a phone at the dock and confirm it is usable there.
+  The deploy itself is verified: https://nathanielostrer.com/hudson-float-plan/
+  serves the page and the data file, and the refresh workflow pushes as
+  NathanielOstrer. What is untested is the page on a small screen, in sunlight,
+  on a cellular connection.
+- **The 60-day cron rule cannot be confirmed until roughly 2026-10-31.** The
+  refresh commit is authored and pushed by the token owner, which is the
+  strongest available signal, but only time proves GitHub accepts it. If the
+  schedule goes quiet around then, check the Actions tab for a disabled-workflow
+  notice and push any commit to re-enable it.
 - The wind comes from the NWS **land** gridpoint covering Pier 66. The marine
   zone forecast (`ANZ338`) describes the water better, and pier-head effects on
   the Hudson are real. Consider reading both and showing the marine one where
