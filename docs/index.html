@@ -1187,8 +1187,12 @@ function renderRose(A) {
   const nm = setName(A.vStart);
   if (nm === 'slack') { txt.innerHTML = 'The wind is from <strong>' + compass(I.windDir) + '</strong>. The current is slack at cast off.'; return; }
   const opp = angDiff((I.windDir + 180) % 360, setDir(A.vStart)) > 130;
-  txt.innerHTML = 'The solid arrow shows the ' + nm + '. It sets <strong>' + setDir(A.vStart) + '\u00B0</strong> at ' + hhmm(I.dep) +
-    '. The dashed arrow shows where the wind pushes you. The wind is from ' + compass(I.windDir) + '. ' +
+  /* Name the arrow by its colour, because solid against dashed is hard to tell
+     apart at this size. The current arrow takes --flood or --ebb, so the word
+     has to follow the tide. Both hold their hue in the light and dark themes. */
+  const hue = nm === 'flood' ? 'blue' : 'amber';
+  txt.innerHTML = 'The ' + hue + ' arrow shows the ' + nm + '. It sets <strong>' + setDir(A.vStart) + '\u00B0</strong> at ' + hhmm(I.dep) +
+    '. The pink dashed arrow shows where the wind pushes you. The wind is from ' + compass(I.windDir) + '. ' +
     (opp ? '<strong>The wind opposes the current.</strong> Wind against current makes short steep chop near the pier heads.'
       : 'The wind and the current agree. The water stays flatter than the wind speed shows.');
 }

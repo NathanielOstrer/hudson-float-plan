@@ -83,6 +83,11 @@ lives at `~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-mac/he
   so an outside PR cannot read it. That protection breaks if a workflow ever uses
   `pull_request_target`, or if a PR that edits a workflow file gets merged. Do
   not add `pull_request_target`, and read workflow changes in every PR.
+- **The rose names each arrow by its colour, not by solid against dashed.**
+  Blue is the flood, amber is the ebb, pink is the wind. The current arrow takes
+  `--flood` or `--ebb`, so the word in `renderRose()` has to follow the tide.
+  All three hues hold their name across both themes, and the e2e pass pins the
+  word to the stroke colour actually drawn.
 - **All user-facing copy follows ASD-STE100.** One idea per sentence, active
   voice, no contractions, articles kept, one word per concept, and a warning
   gives the command before the reason. See the global CLAUDE.md.

@@ -107,7 +107,44 @@ async function main() {
       /flood|ebb|slack/i.test(lateBody));
     check('still no uncaught errors', errors.length === 0, errors.join('; '));
 
-    /* ---- 5. a stale build raises the banner ---- */
+    /* ---- 5. the rose names each arrow by the colour it is actually drawn in ---- */
+    /* Solid against dashed is hard to read at 118px, so the copy leads with the
+       colour. The current arrow takes --flood or --ebb, so the word has to
+       follow the tide, and both hues have to survive the theme swap. */
+    const HUE = {
+      light: { flood: '#15607F', ebb: '#9A5A12', wind: '#B01D6B' },
+      dark:  { flood: '#5BB6D6', ebb: '#DFA05A', wind: '#F0629F' },
+    };
+    for (const scheme of ['light', 'dark']) {
+      const themed = await browser.newPage({ colorScheme: scheme });
+      await themed.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
+      await settle(themed);
+      for (const [tide, word, depart, back] of
+           [['flood', 'blue', '12:30', '15:30'], ['ebb', 'amber', '06:30', '09:30']]) {
+        await themed.fill('#f-date', '2026-09-02');
+        await themed.fill('#f-depart', depart);
+        await themed.fill('#f-return', back);
+        await themed.selectOption('#f-winddir', '247.5');
+        await themed.fill('#f-windlo', '8');
+        await settle(themed);
+        const text = await themed.textContent('#rose-text');
+        const strokes = await themed.$$eval('#rose line', ls => ls.map(l => ({
+          colour: l.getAttribute('stroke'), dashed: !!l.getAttribute('stroke-dasharray') })));
+        const current = strokes.find(a => !a.dashed);
+        const wind = strokes.find(a => a.dashed);
+        check(`${scheme}: the ${tide} sentence names the ${word} arrow`,
+          text.startsWith(`The ${word} arrow shows the ${tide}.`), text.slice(0, 60));
+        check(`${scheme}: the ${tide} arrow is drawn ${word}`,
+          current && current.colour === HUE[scheme][tide],
+          `${current && current.colour} vs ${HUE[scheme][tide]}`);
+        check(`${scheme}: the wind arrow is drawn pink and dashed`,
+          wind && wind.colour === HUE[scheme].wind,
+          `${wind && wind.colour} vs ${HUE[scheme].wind}`);
+      }
+      await themed.close();
+    }
+
+    /* ---- 6. a stale build raises the banner ---- */
     const stale = JSON.parse(original);
     stale.generated = new Date(Date.now() - 20 * 3600 * 1000)
       .toISOString().replace(/\.\d+Z$/, 'Z');
@@ -120,7 +157,7 @@ async function main() {
     check('the build-age banner appears', /20 hours old/.test(banner), banner);
     check('the build-age banner is marked stale', /stale/.test(bannerCls), bannerCls);
 
-    /* ---- 6. a missing data file does not leave a silent blank page ---- */
+    /* ---- 7. a missing data file does not leave a silent blank page ---- */
     writeFileSync(DATA, '{ not json');
     await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
     await settle(page);
