@@ -77,17 +77,18 @@ lives at `~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-mac/he
   GitHub disables a scheduled workflow after 60 days with no repository
   activity, and a `GITHUB_TOKEN` commit does not reset that timer. Because a PAT
   push does trigger workflows, `test.yml` carries `paths-ignore: ['docs/**']`.
+- **`REFRESH_TOKEN` is scoped to this repo, Contents read and write, and it does
+  not expire.** A leak lets someone push to a repo that is public anyway, and
+  nothing else. Secrets do not reach a workflow started by a fork's pull request,
+  so an outside PR cannot read it. That protection breaks if a workflow ever uses
+  `pull_request_target`, or if a PR that edits a workflow file gets merged. Do
+  not add `pull_request_target`, and read workflow changes in every PR.
 - **All user-facing copy follows ASD-STE100.** One idea per sentence, active
   voice, no contractions, articles kept, one word per concept, and a warning
   gives the command before the reason. See the global CLAUDE.md.
 
 ## Next steps
 
-- **Renew `REFRESH_TOKEN` before it expires.** A fine-grained personal access
-  token lasts at most a year. Set the expiry date here when the token is created,
-  and put a calendar reminder a week before it. When it expires the refresh
-  workflow fails silently from the reader's side, and the page shows only the
-  build-age banner.
 - Verify the first Pages deploy end-to-end from a phone, and confirm the page
   paints before the data file lands.
 - The wind comes from the NWS **land** gridpoint covering Pier 66. The marine
