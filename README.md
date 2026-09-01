@@ -9,33 +9,51 @@ which way to sail, when to turn around, and what stops the sail.
 It records conditions and navigation only. There are no fields for names,
 telephone numbers or contacts.
 
-## Data
+**Live at [nathanielostrer.github.io/hudson-float-plan](https://nathanielostrer.github.io/hudson-float-plan/)**
 
-| What | Source |
-|---|---|
-| Tidal current | NOAA harmonic station `NYH1928`, Hudson River at Pier 92, 6 ft bin. The nearest current station to Pier 66, about 1.3 nm up-river. Mean flood sets 026°, mean ebb 212°. |
-| Tide | NOAA station `8518750`, The Battery |
-| Wind, sky, thunder, visibility | NWS gridpoint `OKX/33,44`, which covers Pier 66 |
+## How it works
+
+There is no server. A GitHub Action reads NOAA and the NWS every three hours,
+writes `docs/data/conditions.json`, and commits it. GitHub Pages serves
+`docs/`. The page fetches that one file and does the rest in the browser.
+
+| What | Source | Range |
+|---|---|---|
+| Tidal current | NOAA harmonic station `NYH1928`, Hudson River at Pier 92, 6 ft bin. The nearest current station to Pier 66, about 1.3 nm up-river. Mean flood sets 026°, mean ebb 212°. | 45 days ahead |
+| Tide | NOAA station `8518750`, The Battery | 45 days ahead |
+| Wind, sky, thunder, visibility | NWS gridpoint `OKX/33,44`, which covers Pier 66 | about 8 days ahead |
 
 Current speeds between a slack and a maximum are interpolated on a sine curve,
 which is closer to the real cycle than a straight line. Sunrise and sunset come
 from the NOAA solar equations, computed in the page.
 
+The data file is about 40 KB. If a date has tide but no wind, it is past the
+NWS horizon, and the page says so. If the workflow stops, the page says how old
+its numbers are.
+
 ## Run it
 
-    python3 server.py            # listens on 8020, or on $PORT
+    python3 generate.py                  # read NOAA and the NWS
+    python3 build.py                     # assemble docs/index.html from src/
+    python3 -m http.server 8020 -d docs
 
 No dependencies. The standard library covers all of it.
 
-## Endpoints
+Edit the files in `src/`, never `docs/index.html`. That file is built.
 
-| Path | Returns |
-|---|---|
-| `/` | the app |
-| `/api/water?date=YYYY-MM-DD` | tide highs and lows, plus slack and maximum current |
-| `/api/wind?date=YYYY-MM-DD` | hourly wind, gusts, sky, thunder and visibility |
-| `/api/health` | a liveness check for Render |
+## Test it
 
-Both data routes are cached in memory. Water is astronomical, so it is held for
-a day. Wind is held for 15 minutes, because the NWS reissues about hourly. If an
-upstream call fails and a cached copy exists, the cached copy is served.
+    python3 -m unittest discover -s tests -t .   # the generator
+    node --test tests/*.test.js                  # the client model
+
+Both run offline against recorded fixtures in `tests/fixtures`. There is an
+end-to-end pass too, which drives the built site in a real browser. It needs
+`playwright-core`, which is not a dependency of this repo:
+
+    mkdir -p /tmp/pw && cd /tmp/pw && npm i playwright-core
+    cd -
+    PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node tests/e2e.mjs
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

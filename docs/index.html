@@ -213,6 +213,7 @@ footer a{color:var(--muted)}
     <span class="hull">Pier 66 &middot; Chelsea</span>
   </div>
   <p>Complete this plan before you cast off. The page reads the tide and the current from NOAA, and the wind from the National Weather Service.</p>
+  <p class="fcstline" id="buildline" hidden></p>
 </header>
 
 <main>
@@ -330,15 +331,13 @@ footer a{color:var(--muted)}
 
 <script>
 "use strict";
-/* Data arrives from this app's own API, which proxies NOAA and the NWS.
-   WATER is keyed by date and holds tide and current; WIND holds the hourly
-   forecast for the sail date. Both are filled in the background. */
+/* The pure model: time, sun, the tidal-current curve, the hourly wind and the
+   forecast reader. No DOM in this file, so Node can load it and test it.
+   WATER is keyed by date and holds tide and current. WIND holds the hourly
+   forecast. Both are filled once, from docs/data/conditions.json. */
 const FLOOD = 26, EBB = 212;
 const LAT = 40.7513, LON = -74.0095;
 const WATER = {}, WIND = {};
-const pending = {};
-const $ = s => document.querySelector(s);
-
 /* ---------------- time helpers (all wall-clock New York) ---------------- */
 const pad = n => String(n).padStart(2, '0');
 const hhmm = m => { m = ((Math.round(m) % 1440) + 1440) % 1440; return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
@@ -358,7 +357,6 @@ function prettyDate(ds) {
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US',
     { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
-
 /* ---------------- sun ---------------- */
 const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
 function julianDay(y, m, d) {
@@ -405,35 +403,14 @@ function dayTides(ds) {
   const w = WATER[ds];
   return w && w.tide ? w.tide : [];
 }
-
-/* ---------------- fetching ---------------- */
-async function loadDay(ds) {
+/* A date outside the file reads as a failed load, which the page already
+   handles. Mark it so dayEvents and windAt do not keep asking. */
+function readDay(ds) {
   if (!ds) return;
-  const days = [addDays(ds, -1), ds, addDays(ds, 1)];
-  const jobs = [];
-  days.forEach(d => {
-    if (WATER[d] !== undefined || pending['w' + d]) return;
-    pending['w' + d] = true;
-    jobs.push(fetch('api/water?date=' + d)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(j => { WATER[d] = j; })
-      .catch(() => { WATER[d] = null; })
-      .finally(() => { delete pending['w' + d]; }));
+  [addDays(ds, -1), ds, addDays(ds, 1)].forEach(d => {
+    if (WATER[d] === undefined) WATER[d] = null;
   });
-  if (WIND[ds] === undefined && !pending['n' + ds]) {
-    pending['n' + ds] = true;
-    jobs.push(fetch('api/wind?date=' + ds)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(j => { WIND[ds] = j; })
-      .catch(() => { WIND[ds] = null; })
-      .finally(() => { delete pending['n' + ds]; }));
-  }
-  if (!jobs.length) return;
-  document.body.classList.add('loading');
-  await Promise.all(jobs);
-  document.body.classList.remove('loading');
-  autofillWind(ds);
-  render();
+  if (WIND[ds] === undefined) WIND[ds] = null;
 }
 
 /* ---------------- hourly wind ---------------- */
@@ -490,28 +467,6 @@ const upDown = v => v > 0 ? 'up-river' : 'down-river';
 
 /* ---------------- geometry ---------------- */
 const angDiff = (a, b) => { let d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
-
-/* ---------------- state ---------------- */
-const FIELDS = ['date', 'depart', 'return', 'winddir', 'windlo', 'windhi', 'shift', 'sky', 'vis',
-  'airtemp', 'watertemp', 'storm', 'advisory', 'fcsttime', 'fcstsrc'];
-const KEY = 'hudson-float-plan-v1';
-let state = {};
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) state = Object.assign({}, JSON.parse(raw));
-  } catch (e) { /* private mode, blocked storage: carry on with defaults */ }
-}
-function saveState() {
-  FIELDS.forEach(f => { const el = $('#f-' + f); if (el) state[f] = el.value; });
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { }
-}
-function applyState() {
-  FIELDS.forEach(f => { const el = $('#f-' + f); if (el && state[f] != null) el.value = state[f]; });
-}
-
-/* ---------------- checklists ---------------- */
 /* ---------------- forecast reader ---------------- */
 const POINTS = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5,
   S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5 };
@@ -621,6 +576,102 @@ function parseForecast(raw) {
   if (mph) notes.push('mph converted to kt');
   return { got, notes };
 }
+
+/* Node loads this file directly for the unit tests. A browser has no `module`,
+   so the guard makes the line a no-op in the page. */
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { FLOOD, EBB, LAT, LON, WATER, WIND, hhmm, toMin, addDays,
+    nyOffset, prettyDate, sunEvent, todayNY, dayEvents, dayTides, readDay, windAt,
+    timeline, currentAt, setDir, setName, upDown, angDiff, nearestPoint,
+    parseForecast };
+}
+
+"use strict";
+/* The page: state, the forecast form, analysis and rendering. The pure model
+   lives in model.js, which build.py concatenates ahead of this file. */
+const $ = s => document.querySelector(s);
+
+/* ---------------- data ---------------- */
+/* The whole feed is one file, rebuilt every three hours by a GitHub Action and
+   committed to the repo. Fetch it once, then a date change is a lookup. */
+let BUNDLE = null;
+
+async function loadBundle() {
+  document.body.classList.add('loading');
+  try {
+    const r = await fetch('data/conditions.json', { cache: 'no-cache' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    BUNDLE = await r.json();
+    Object.assign(WATER, BUNDLE.water || {});
+    Object.assign(WIND, BUNDLE.wind || {});
+    clampDateInput();
+  } catch (e) {
+    BUNDLE = null;
+  } finally {
+    document.body.classList.remove('loading');
+  }
+  renderBuildLine();
+}
+
+/* The file covers a fixed window. Hold the picker inside it, and keep a day of
+   overhang at each end, because timeline() reads the day before and the day
+   after the sail date. */
+function clampDateInput() {
+  const dates = (BUNDLE && BUNDLE.waterDates) || [];
+  if (dates.length < 3) return;
+  const el = $('#f-date');
+  el.min = dates[1];
+  el.max = dates[dates.length - 2];
+  if (el.value && el.value < el.min) el.value = el.min;
+  if (el.value && el.value > el.max) el.value = el.max;
+  state.date = el.value;
+}
+
+function loadDay(ds) {
+  if (!ds) return;
+  readDay(ds);
+  autofillWind(ds);
+  render();
+}
+
+/* A static site can go quiet without saying so. If the workflow stops, the page
+   keeps serving old numbers, so say how old they are. */
+function renderBuildLine() {
+  const line = $('#buildline');
+  if (!line) return;
+  if (!BUNDLE || !BUNDLE.generated) {
+    line.className = 'fcstline stale';
+    line.textContent = 'The data did not load. Reload the page. Do not sail on this plan.';
+    return;
+  }
+  const ageMin = Math.round((Date.now() - new Date(BUNDLE.generated).getTime()) / 60000);
+  if (ageMin <= 360) { line.className = 'fcstline'; line.textContent = ''; line.hidden = true; return; }
+  line.hidden = false;
+  line.className = 'fcstline stale';
+  line.textContent = 'The data is ' + Math.round(ageMin / 60) + ' hours old. '
+    + 'The page updates every 3 hours. Check the NOAA and NWS forecasts before you cast off.';
+}
+/* ---------------- state ---------------- */
+const FIELDS = ['date', 'depart', 'return', 'winddir', 'windlo', 'windhi', 'shift', 'sky', 'vis',
+  'airtemp', 'watertemp', 'storm', 'advisory', 'fcsttime', 'fcstsrc'];
+const KEY = 'hudson-float-plan-v1';
+let state = {};
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) state = Object.assign({}, JSON.parse(raw));
+  } catch (e) { /* private mode, blocked storage: carry on with defaults */ }
+}
+function saveState() {
+  FIELDS.forEach(f => { const el = $('#f-' + f); if (el) state[f] = el.value; });
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { }
+}
+function applyState() {
+  FIELDS.forEach(f => { const el = $('#f-' + f); if (el && state[f] != null) el.value = state[f]; });
+}
+
+/* ---------------- checklists ---------------- */
 
 function applyForecast() {
   const box = $('#f-paste'), out = $('#readback');
@@ -873,10 +924,13 @@ function autofillWind(ds) {
   const w = WIND[ds], line = $('#fcstline');
   const dep = toMin($('#f-depart').value), ret = toMin($('#f-return').value);
   if (!w || !w.hours || !w.hours.length) {
+    /* The whole feed is one file. If it loaded, a date with no wind is a date
+       past the NWS horizon. If it did not load, nothing works, and the banner
+       under the masthead already says so. */
     line.className = 'fcstline none';
-    line.textContent = WIND[ds] === null
-      ? 'The forecast did not load. Open "Use a different forecast" below, or give the values yourself.'
-      : 'The NWS has no forecast for that date. It reaches about 7 days ahead. Give the wind values yourself, or paste a forecast below.';
+    line.textContent = BUNDLE
+      ? 'The wind forecast does not reach that date. It reaches about 8 days ahead. Give the wind values yourself, or paste a forecast below.'
+      : 'The forecast did not load. Reload the page, or give the wind values yourself.';
     return;
   }
   if (state.paste) { line.className = 'fcstline'; line.textContent = 'A pasted forecast is in use. Clear it below to go back to the NWS forecast.'; return; }
@@ -1218,8 +1272,8 @@ function init() {
   new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   let rt;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => renderStrip(LAST || analyze()), 120); });
+  loadBundle().then(() => loadDay($('#f-date').value));
   render();
-  loadDay($('#f-date').value);
 }
 init();
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble static/index.html from the three source files in src/.
+"""Assemble docs/index.html from the four source files in src/.
 
 Keeping the CSS, the markup and the script apart makes them editable; the app
 ships as one file so the page needs a single request.
@@ -8,7 +8,7 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "src")
-OUT = os.path.join(HERE, "static", "index.html")
+OUT = os.path.join(HERE, "docs", "index.html")
 
 SHELL = """<!doctype html>
 <html lang="en">
@@ -36,7 +36,8 @@ def read(name):
 
 
 def main():
-    html = SHELL.format(head=read("head.html"), body=read("body.html"), js=read("app.js"))
+    html = SHELL.format(head=read("head.html"), body=read("body.html"),
+                        js=read("model.js") + "\n" + read("app.js"))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
