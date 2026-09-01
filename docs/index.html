@@ -498,7 +498,9 @@ function parseForecast(raw) {
   } else {
     /* direction: a compass point beside the word WIND, else the first one in the text */
     let dm = /\b(N|NNE|NE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)(?:ERLY)?\s*(?:WINDS?|WND)\b/.exec(t)
-      || /\bWINDS?\s*(?:FROM\s*THE\s*)?(N|NNE|NE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)(?:ERLY)?\b/.exec(t)
+      /* \s+ and not \s*: with \s* the S of "WINDS" is read as the compass point
+         south, so "Variable winds less than 5 kt" invented a due-south heading. */
+      || /\bWINDS?\s+(?:FROM\s*THE\s*)?(N|NNE|NE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)(?:ERLY)?\b/.exec(t)
       || /\b(\d{1,2})\s*(?:KT|KNOTS|MPH)\s*(N|NNE|NE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)\b/.exec(t);
     if (!dm) dm = /\b(N|NNE|NE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)\s+(?:AT\s+)?\d{1,2}\s*(?:KT|KNOTS|MPH)\b/.exec(t);
     if (dm) { const k = dm[2] && POINTS[dm[2]] !== undefined ? dm[2] : dm[1]; if (POINTS[k] !== undefined) got.winddir = POINTS[k]; }

@@ -338,6 +338,24 @@ test('text with no weather in it returns nothing rather than guessing', () => {
   assert.equal(g.sky, undefined);
 });
 
+test('a variable wind gives no direction rather than inventing one', () => {
+  /* Regression. The direction regex used \\s* after WINDS?, so it matched the
+     word "WINDS" alone: WIND for WINDS?, nothing for \\s*, then the trailing S as
+     the compass point. Every "variable winds" phrasing returned a confident due
+     south. A blank field costs a keystroke. A wrong heading you may not notice. */
+  assert.equal(got('Variable winds less than 5 kt.').winddir, undefined);
+  assert.equal(got('Winds light and variable.').winddir, undefined);
+  assert.equal(got('Winds becoming light and variable after midnight.').winddir, undefined);
+  assert.equal(got('Variable winds around 5 kt. Waves 1 ft or less.').winddir, undefined);
+});
+
+test('a real direction after the word winds still reads', () => {
+  assert.equal(got('Winds from the NE at 12 kt.').winddir, 45);
+  assert.equal(got('Wind NW 10 kt.').winddir, 315);
+  assert.equal(got('Winds SSE 8 kt.').winddir, 157.5);
+  assert.equal(got('S winds 10 to 15 kt.').winddir, 180);
+});
+
 test('an empty string is safe', () => {
   assert.deepEqual(M.parseForecast('').got, {});
 });
