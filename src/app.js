@@ -155,9 +155,12 @@ function analyze() {
   const I = readInputs();
   if (!I.ok) return { I, valid: false };
   const tl = timeline(I.ds);
+  const tlDeep = timeline(I.ds, 'currentDeep'), tlSurf = timeline(I.ds, 'currentSurface');
   const step = 5, samples = [];
   for (let m = I.dep; m <= I.ret; m += step) samples.push({ m, v: currentAt(tl, m) });
-  const slacks = tl.filter(e => e.type === 's' && e.m > I.dep + 10 && e.m < I.ret - 10);
+  /* each slack inside the window, widened to the band across the depth bins */
+  const slacks = tl.map((e, i) => e.type === 's' && e.m > I.dep + 10 && e.m < I.ret - 10
+    ? slackBand(tl, i, tlDeep, tlSurf) : null).filter(Boolean);
   const maxes = tl.filter(e => e.type !== 's' && e.m >= I.dep && e.m <= I.ret);
   let peak = 0, peakAt = I.dep;
   samples.forEach(s => { if (Math.abs(s.v) > Math.abs(peak)) { peak = s.v; peakAt = s.m; } });
@@ -172,7 +175,11 @@ function analyze() {
     let pk = 0;
     samples.filter(s => s.m >= bounds[i] && s.m <= bounds[i + 1])
       .forEach(s => { if (Math.abs(s.v) > Math.abs(pk)) pk = s.v; });
-    phases.push({ from: bounds[i], to: bounds[i + 1], v, peak: pk, dir: v > 0 ? 1 : -1 });
+    /* name the phase from its leg, not from its midpoint speed: a phase that
+       ends 20 minutes after cast off samples as slack but is still the ebb */
+    const set = setAt(tl, mid) || (v > 0 ? 'f' : 'e');
+    const name = set === 'f' ? 'flood' : set === 'e' ? 'ebb' : 'slack';
+    phases.push({ from: bounds[i], to: bounds[i + 1], v, peak: pk, dir: set === 'e' ? -1 : 1, name });
   }
 
   /* hour-by-hour rows */
@@ -193,7 +200,7 @@ function analyze() {
   });
 
   const sunset = sunEvent(I.ds, true), sunrise = sunEvent(I.ds, false);
-  return { I, valid: true, tl, samples, slacks, maxes, phases, peak, peakAt, vStart, vEnd, rows, sunset, sunrise };
+  return { I, valid: true, tl, tlDeep, tlSurf, samples, slacks, maxes, phases, peak, peakAt, vStart, vEnd, rows, sunset, sunrise };
 }
 
 /* the plan, written as instructions */
@@ -209,38 +216,50 @@ function buildPlan(A) {
     const bs = boatSpeed(I), pk = Math.abs(p.peak), w = I.windLo ?? I.windHi;
     if (bs !== null && bs < pk + 0.5) {
       const margin = bs - pk;
-      lead = 'Stay near the dock. You cannot sail back against this ' + setName(p.v) + '.';
-      why = 'The ' + setName(p.v) + ' runs for the full window. The peak is ' + pk.toFixed(1) + ' kt. ' +
+      lead = 'Stay near the dock. You cannot sail back against this ' + p.name + '.';
+      why = 'The ' + p.name + ' runs for the full window. The peak is ' + pk.toFixed(1) + ' kt. ' +
         'A wind of ' + w + ' kt gives you about ' + bs.toFixed(1) + ' kt through the water. ' +
         'At the peak you have ' + (margin <= 0 ? 'no headway against the current' : 'about ' + margin.toFixed(1) + ' kt of headway against the current') +
         '. You cannot sail back past the point the river carries you to.';
       leash = true;
       steps.push([hhmm(I.dep), 'Cast off. Stay <em>' + axis(out) + '</em> of the dock. Keep inshore of the pier line, in the weaker current.']);
       steps.push([hhmm(Math.round((I.dep + I.ret) / 2)), 'Check your position against the pier numbers. If you are down-tide of Pier 66, come back now.']);
-      steps.push([hhmm(I.ret), 'Come alongside. Approach into the ' + setName(p.v) + '.']);
+      steps.push([hhmm(I.ret), 'Come alongside. Approach into the ' + p.name + '.']);
     } else {
-      lead = 'Sail ' + axis(out) + ' first. Ride the ' + setName(p.v) + ' home.';
-      why = 'The ' + setName(p.v) + ' runs for the full window. The peak is ' + pk.toFixed(1) + ' kt. ' +
+      lead = 'Sail ' + axis(out) + ' first. Ride the ' + p.name + ' home.';
+      why = 'The ' + p.name + ' runs for the full window. The peak is ' + pk.toFixed(1) + ' kt. ' +
         'The current does not turn while you are out. Push against it while the crew is fresh. The current then carries you home.';
       steps.push([hhmm(I.dep), 'Cast off. Go <em>' + axis(out) + '</em>, ' + toward(out) + '.']);
       steps.push([hhmm(Math.max(I.dep + 15, Math.round((I.dep + I.ret) / 2 - 15))), 'Turn back at this time, or earlier. From here the current is behind you, so the leg home is the fast one.']);
-      steps.push([hhmm(I.ret), 'Come alongside. Approach into the ' + setName(p.v) + '.']);
+      steps.push([hhmm(I.ret), 'Come alongside. Approach into the ' + p.name + '.']);
     }
   } else if (phases.length === 2) {
-    const a = phases[0], b = phases[1], T = slacks[0].m;
-    lead = 'Go ' + axis(a.dir) + ' on the ' + setName(a.v) + '. Turn at slack water at ' + hhmm(T) + '. Ride the ' + setName(b.v) + ' home.';
-    why = 'The current turns inside your window. Go out with it. Turn at slack water. The new ' + setName(b.v) +
-      ' then pushes you back to Pier 66. Both legs run downstream.';
-    steps.push([hhmm(I.dep), 'Cast off. Go <em>' + axis(a.dir) + '</em>, ' + toward(a.dir) + '. The ' + setName(a.v) + ' gives you up to ' + Math.abs(a.peak).toFixed(1) + ' kt.']);
-    if (T - 20 > I.dep + 10) steps.push([hhmm(T - 20), 'Turn back. The current is weak from this time.']);
-    steps.push([hhmm(T), 'Slack water. Turn here.']);
-    steps.push([hhmm(I.ret), 'Come alongside. The ' + setName(b.v) + ' gives you up to ' + Math.abs(b.peak).toFixed(1) + ' kt. Approach into it.']);
+    const a = phases[0], b = phases[1], S = slacks[0], T = S.m;
+    /* The three depth bins put the turn minutes to hours apart. Give the
+       spread when there is one, so the skipper is not surprised by a flood
+       that arrives an hour before the line on the chart says it will. */
+    const spread = S.late - S.early >= 15;
+    lead = 'Go ' + axis(a.dir) + ' on the ' + a.name + '. Turn at slack water ' +
+      (spread ? 'between ' + hhmm(S.early) + ' and ' + hhmm(S.late) : 'at ' + hhmm(T)) + '. Ride the ' + b.name + ' home.';
+    why = 'The current turns inside your window. Go out with it. Turn at slack water. ' +
+      (spread ? 'The turn comes first in deep water and near the bank. It comes last at the surface in mid-river. ' : '') +
+      'The new ' + b.name + ' then pushes you back to Pier 66. Both legs run downstream.';
+    steps.push([hhmm(I.dep), 'Cast off. Go <em>' + axis(a.dir) + '</em>, ' + toward(a.dir) + '. The ' + a.name + ' gives you up to ' + Math.abs(a.peak).toFixed(1) + ' kt.']);
+    if (S.early - 20 > I.dep + 10) steps.push([hhmm(S.early - 20), 'Turn back. The current is weak from this time.']);
+    if (spread) {
+      steps.push([hhmm(S.early), 'Slack water begins. The deep water and the bank turn first.']);
+      steps.push([hhmm(S.late), 'Slack water ends. The surface turns last. Expect the ' + b.name + ' everywhere from here.']);
+    } else {
+      steps.push([hhmm(T), 'Slack water. Turn here.']);
+    }
+    steps.push([hhmm(I.ret), 'Come alongside. The ' + b.name + ' gives you up to ' + Math.abs(b.peak).toFixed(1) + ' kt. Approach into it.']);
   } else {
     lead = 'The current turns ' + slacks.length + ' times in your window.';
-    why = 'The window is too long for one strategy. Plan each leg around the slack times below.';
-    steps.push([hhmm(I.dep), 'Cast off on the ' + setName(phases[0].v) + '. Go <em>' + axis(phases[0].dir) + '</em>.']);
-    slacks.forEach((sl, i) => steps.push([hhmm(sl.m),
-      'Slack water. The current turns to ' + setName(phases[i + 1].v) + '. It sets <em>' + axis(phases[i + 1].dir) + '</em>, up to ' + Math.abs(phases[i + 1].peak).toFixed(1) + ' kt.']));
+    why = 'The window is too long for one strategy. Plan each leg around the slack times below. Each turn comes first in deep water and last at the surface.';
+    steps.push([hhmm(I.dep), 'Cast off on the ' + phases[0].name + '. Go <em>' + axis(phases[0].dir) + '</em>.']);
+    slacks.forEach((sl, i) => steps.push([hhmm(sl.early),
+      'Slack water' + (sl.late - sl.early >= 15 ? ', until ' + hhmm(sl.late) + ' at the surface' : '') +
+      '. The current turns to ' + phases[i + 1].name + '. It sets <em>' + axis(phases[i + 1].dir) + '</em>, up to ' + Math.abs(phases[i + 1].peak).toFixed(1) + ' kt.']));
     steps.push([hhmm(I.ret), 'Come alongside.']);
   }
 
@@ -399,6 +418,8 @@ function svg(tag, attrs, text) {
   return el;
 }
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+/* the depth of the bin the page plans on, as the generator recorded it */
+const currentDepth = () => (BUNDLE && BUNDLE.meta && BUNDLE.meta.currentDepthFt) || 19;
 
 function renderWindow(A) {
   const dl = $('#ro-window'); dl.innerHTML = '';
@@ -450,7 +471,7 @@ function renderTideEvents(A) {
   }
   const evs = dayEvents(A.I.ds);
   if (evs.length) {
-    mk('Current at Pier 92', evs.map(e => {
+    mk('Current at Pier 92, ' + currentDepth() + ' ft', evs.map(e => {
       const cls = e.type === 'f' ? 'flood' : e.type === 'e' ? 'ebb' : 'slack';
       const label = e.type === 's' ? 'slack'
         : (e.type === 'f' ? 'max flood ' : 'max ebb ') + e.v.toFixed(1) + ' kt';
@@ -491,8 +512,10 @@ function renderStrip(A) {
     [1, -1].forEach(s => {
       el.appendChild(svg('line', { x1: L, y1: y(k * s), x2: R, y2: y(k * s), stroke: line2, 'stroke-dasharray': '2 4', 'stroke-width': 1 }));
     });
-    el.appendChild(svg('text', { x: L - 6, y: y(k) + 4, 'text-anchor': 'end', fill: faint, 'font-size': 10, 'font-family': F }, k + 'kt'));
-    el.appendChild(svg('text', { x: L - 6, y: y(-k) + 4, 'text-anchor': 'end', fill: faint, 'font-size': 10, 'font-family': F }, k + 'kt'));
+    /* the ticks carry the colour of the set they measure, so "1kt" below the
+       line reads as one knot of ebb and not as a negative number */
+    el.appendChild(svg('text', { x: L - 6, y: y(k) + 4, 'text-anchor': 'end', fill: cf, 'fill-opacity': .8, 'font-size': 10, 'font-family': F }, k + 'kt'));
+    el.appendChild(svg('text', { x: L - 6, y: y(-k) + 4, 'text-anchor': 'end', fill: ce, 'fill-opacity': .8, 'font-size': 10, 'font-family': F }, k + 'kt'));
   });
 
   /* filled curve, split by sign */
@@ -514,15 +537,30 @@ function renderStrip(A) {
   });
   flush();
 
-  /* centreline + axis labels */
+  /* centreline + axis labels. The labels sit on the line they describe, one
+     above and one below, so they read as the vertical axis. In the corners
+     they read as a time axis, and the chart then says flood-then-ebb on a
+     day that runs ebb-then-flood. The halo keeps them legible over the fill. */
   el.appendChild(svg('line', { x1: L, y1: CY, x2: R, y2: CY, stroke: muted, 'stroke-width': 1.2 }));
-  el.appendChild(svg('text', { x: L, y: 13, fill: cf, 'font-size': 10.5, 'font-weight': 600, 'font-family': F, 'letter-spacing': '.06em' }, '▲ FLOOD · UP-RIVER'));
-  el.appendChild(svg('text', { x: R, y: 13, 'text-anchor': 'end', fill: ce, 'font-size': 10.5, 'font-weight': 600, 'font-family': F, 'letter-spacing': '.06em' }, 'EBB · DOWN-RIVER ▼'));
+  const halo = { 'paint-order': 'stroke', stroke: cssVar('--sunk'), 'stroke-width': 3, 'stroke-linejoin': 'round' };
+  el.appendChild(svg('text', Object.assign({ class: 'axis flood', x: L + 5, y: CY - 5, fill: cf, 'font-size': 10, 'font-weight': 600, 'font-family': F, 'letter-spacing': '.06em' }, halo), 'FLOOD ▲ UP-RIVER'));
+  el.appendChild(svg('text', Object.assign({ class: 'axis ebb', x: L + 5, y: CY + 13, fill: ce, 'font-size': 10, 'font-weight': 600, 'font-family': F, 'letter-spacing': '.06em' }, halo), 'EBB ▼ DOWN-RIVER'));
 
-  /* slack markers */
-  A.tl.filter(e => e.type === 's' && e.m > t0 && e.m < t1).forEach(e => {
+  /* slack markers: a dashed line at the mid-depth slack, and a band from the
+     deep slack to the surface slack when the bins disagree */
+  let banded = false;
+  A.tl.forEach((e, i) => {
+    if (e.type !== 's' || e.m <= t0 || e.m >= t1) return;
+    const b = slackBand(A.tl, i, A.tlDeep, A.tlSurf);
+    const wide = b.late - b.early >= 15;
+    if (wide) {
+      banded = true;
+      const x0 = Math.max(L, x(b.early)), x1 = Math.min(R, x(b.late));
+      el.appendChild(svg('rect', { class: 'band', x: x0, y: 20, width: Math.max(0, x1 - x0), height: CY + HH - 20, fill: muted, 'fill-opacity': .13 }));
+    }
     el.appendChild(svg('line', { x1: x(e.m), y1: 20, x2: x(e.m), y2: CY + HH, stroke: muted, 'stroke-dasharray': '3 3', 'stroke-width': 1 }));
-    el.appendChild(svg('text', { x: x(e.m), y: 31, 'text-anchor': 'middle', fill: muted, 'font-size': 10.5, 'font-family': F }, 'slack ' + hhmm(e.m)));
+    el.appendChild(svg('text', { class: 'slack', x: x(e.m), y: 31, 'text-anchor': 'middle', fill: muted, 'font-size': 10.5, 'font-family': F },
+      wide ? 'slack ' + hhmm(b.early) + ' to ' + hhmm(b.late) : 'slack ' + hhmm(e.m)));
   });
 
   /* window ends */
@@ -532,8 +570,10 @@ function renderStrip(A) {
     el.appendChild(tx);
   });
 
-  cap.textContent = 'This is the predicted current at Pier 92 in your sail window. Above the line, the current sets up-river. '
-    + 'Below the line, it sets down-river. The peak is ' + Math.abs(A.peak).toFixed(1) + ' kt ' + setName(A.peak) + ' at ' + hhmm(A.peakAt) + '.';
+  cap.textContent = 'This is the predicted current at Pier 92, ' + currentDepth() + ' ft down, in your sail window. Above the line, the current sets up-river. '
+    + 'Below the line, it sets down-river. '
+    + (banded ? 'The grey band at a slack runs from the turn in deep water to the turn at the surface. ' : '')
+    + 'The peak is ' + Math.abs(A.peak).toFixed(1) + ' kt ' + setName(A.peak) + ' at ' + hhmm(A.peakAt) + '.';
 }
 
 function renderTable(A) {

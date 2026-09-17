@@ -63,9 +63,12 @@ function todayNY() {
 }
 
 /* ---------------- current model ---------------- */
-function dayEvents(ds) {
-  const w = WATER[ds];
-  return w && w.current ? w.current : [];
+/* Each date carries three series from the three depth bins at Pier 92:
+   `current` (19 ft, the one the page plans on), `currentDeep` (35 ft) and
+   `currentSurface` (6 ft). The key picks one. */
+function dayEvents(ds, key) {
+  const w = WATER[ds], k = key || 'current';
+  return w && w[k] ? w[k] : [];
 }
 function dayTides(ds) {
   const w = WATER[ds];
@@ -107,12 +110,37 @@ function windAt(ds, minutes) {
     sky: lerp(a.sky, b.sky), thunder: Math.max(a.thunder ?? 0, b.thunder ?? 0),
     visNm: lerp(a.visNm, b.visNm), tempF: lerp(a.tempF, b.tempF) };
 }
-function timeline(ds) {
+function timeline(ds, key) {
   const out = [];
   [[-1, -1440], [0, 0], [1, 1440]].forEach(([o, sh]) => {
-    dayEvents(addDays(ds, o)).forEach(e => out.push({ m: e.m + sh, type: e.type, v: e.v }));
+    dayEvents(addDays(ds, o), key).forEach(e => out.push({ m: e.m + sh, type: e.type, v: e.v }));
   });
   return out.sort((a, b) => a.m - b.m);
+}
+/* The Hudson is stratified. The deep water turns to the flood first and the
+   surface turns last, and NOAA's three bins at Pier 92 put as much as two
+   hours between them. Given the index of a slack in the mid-depth timeline,
+   find the same turn in the other two bins and return the spread. A turn is
+   the same turn when its slack lies within three hours and leads into the
+   same set. A bin with no match is null, and the band shrinks to what is
+   there. */
+function slackBand(tl, i, deep, surface) {
+  const sl = tl[i], nxt = tl[i + 1];
+  const to = nxt && nxt.type !== 's' ? nxt.type : null;
+  const find = other => {
+    let best = null;
+    (other || []).forEach((e, k) => {
+      if (e.type !== 's' || Math.abs(e.m - sl.m) > 180) return;
+      const n = other[k + 1];
+      if (to && !(n && n.type === to)) return;
+      if (best === null || Math.abs(e.m - sl.m) < Math.abs(best - sl.m)) best = e.m;
+    });
+    return best;
+  };
+  const d = find(deep), s = find(surface);
+  const all = [sl.m, d, s].filter(x => x !== null);
+  return { m: sl.m, type: 's', v: 0, to, deep: d, surface: s,
+    early: Math.min(...all), late: Math.max(...all) };
 }
 /* signed knots: + = flood (sets up-river 026), - = ebb (sets down-river 206) */
 function currentAt(tl, m) {
@@ -128,6 +156,16 @@ function currentAt(tl, m) {
   if (a.type === 's' && b.type === 's') return 0;
   const sa = (a.type === 'f' ? 1 : -1) * a.v, sb = (b.type === 'f' ? 1 : -1) * b.v;
   return sa + (sb - sa) * f;
+}
+/* The set of the leg a moment lies in: 'f', 'e' or 's'. A short phase near a
+   slack samples as almost nothing, and naming it from its speed calls a real
+   ebb "the slack". The leg between two events knows what it is. */
+function setAt(tl, m) {
+  let i = -1;
+  for (let k = 0; k < tl.length - 1; k++) if (m >= tl[k].m && m <= tl[k + 1].m) { i = k; break; }
+  if (i < 0) return null;
+  const a = tl[i], b = tl[i + 1];
+  return a.type !== 's' ? a.type : b.type;
 }
 const setDir = v => v >= 0 ? FLOOD : EBB;
 const setName = v => Math.abs(v) < 0.15 ? 'slack' : (v > 0 ? 'flood' : 'ebb');
@@ -252,6 +290,6 @@ function parseForecast(raw) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { FLOOD, EBB, LAT, LON, WATER, WIND, hhmm, toMin, addDays,
     nyOffset, prettyDate, sunEvent, todayNY, dayEvents, dayTides, readDay, windAt,
-    timeline, currentAt, setDir, setName, upDown, angDiff, nearestPoint,
+    timeline, slackBand, currentAt, setAt, setDir, setName, upDown, angDiff, nearestPoint,
     parseForecast };
 }

@@ -17,12 +17,23 @@ from zoneinfo import ZoneInfo
 NY = ZoneInfo("America/New_York")
 
 CURRENT_STATION = "NYH1928"      # Hudson River at Pier 92, nearest to Pier 66
-CURRENT_BIN = "12"               # 6 ft below the surface
+# NYH1928 is an ADCP station. NOAA publishes three depth bins for it, and on a
+# stratified estuary they disagree by up to two hours on when the flood begins:
+# the deep water turns first and the surface last. The mid-depth bin is the
+# series the page plans on. The other two bound the turn. See CLAUDE.md.
+CURRENT_BINS = {
+    "surface": {"bin": "12", "depthFt": 6, "key": "currentSurface"},
+    "mid": {"bin": "8", "depthFt": 19, "key": "current"},
+    "deep": {"bin": "3", "depthFt": 35, "key": "currentDeep"},
+}
+CURRENT_BIN = CURRENT_BINS["mid"]["bin"]
 TIDE_STATION = "8518750"         # The Battery
 GRID = "OKX/33,44"               # NWS grid cell covering Pier 66
 UA = "hudson-float-plan (https://github.com/NathanielOstrer/hudson-float-plan)"
 
 META = {"currentStation": CURRENT_STATION, "tideStation": TIDE_STATION,
+        "currentBin": CURRENT_BIN, "currentDepthFt": CURRENT_BINS["mid"]["depthFt"],
+        "currentBins": {k: {"bin": v["bin"], "depthFt": v["depthFt"]} for k, v in CURRENT_BINS.items()},
         "floodDir": 26, "ebbDir": 212, "windSource": "NWS " + GRID}
 
 
@@ -49,33 +60,40 @@ def _minutes(stamp):
 
 
 # ---------------------------------------------------------------- water
+def current_url(span_a, span_b, bin_no):
+    return ("https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+            f"?product=currents_predictions&application=floatplan&begin_date={span_a}"
+            f"&end_date={span_b}&station={CURRENT_STATION}&time_zone=lst_ldt"
+            f"&interval=MAX_SLACK&units=english&format=json&bin={bin_no}")
+
+
 def fetch_water_range(start, end):
     """Tide highs and lows, plus slack and maximum current, keyed by local date.
 
-    One request each. NOAA honours begin_date and end_date on both products, so
-    a 47-day window costs two calls rather than ninety-four.
+    One request per current bin and one for the tide. NOAA honours begin_date
+    and end_date on both products, so a 47-day window costs four calls rather
+    than a hundred and eighty-eight. Each date carries `current` (mid-depth),
+    `currentDeep`, `currentSurface` and `tide`.
     """
     span_a, span_b = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
-    cur_url = ("https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
-               f"?product=currents_predictions&application=floatplan&begin_date={span_a}"
-               f"&end_date={span_b}&station={CURRENT_STATION}&time_zone=lst_ldt"
-               f"&interval=MAX_SLACK&units=english&format=json&bin={CURRENT_BIN}")
     tide_url = ("https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
                 f"?product=predictions&application=floatplan&begin_date={span_a}"
                 f"&end_date={span_b}&datum=MLLW&station={TIDE_STATION}&time_zone=lst_ldt"
                 "&interval=hilo&units=english&format=json")
-    cur, tide = get_json(cur_url), get_json(tide_url)
+    keys = [v["key"] for v in CURRENT_BINS.values()]
+    days = {d: {**{k: [] for k in keys}, "tide": []} for d in date_range(start, end)}
 
-    days = {d: {"current": [], "tide": []} for d in date_range(start, end)}
+    for spec in CURRENT_BINS.values():
+        cur = get_json(current_url(span_a, span_b, spec["bin"]))
+        for e in cur.get("current_predictions", {}).get("cp", []):
+            day, m = _minutes(e["Time"])
+            if day not in days:
+                continue
+            kind = {"slack": "s", "flood": "f", "ebb": "e"}[e["Type"]]
+            v = 0.0 if kind == "s" else round(abs(float(e["Velocity_Major"])), 2)
+            days[day][spec["key"]].append({"m": m, "type": kind, "v": v})
 
-    for e in cur.get("current_predictions", {}).get("cp", []):
-        day, m = _minutes(e["Time"])
-        if day not in days:
-            continue
-        kind = {"slack": "s", "flood": "f", "ebb": "e"}[e["Type"]]
-        v = 0.0 if kind == "s" else round(abs(float(e["Velocity_Major"])), 2)
-        days[day]["current"].append({"m": m, "type": kind, "v": v})
-
+    tide = get_json(tide_url)
     for e in tide.get("predictions", []):
         day, m = _minutes(e["t"])
         if day not in days:
@@ -83,11 +101,13 @@ def fetch_water_range(start, end):
         days[day]["tide"].append({"m": m, "type": e["type"], "ft": round(float(e["v"]), 1)})
 
     for d in days.values():
-        d["current"].sort(key=lambda x: x["m"])
+        for k in keys:
+            d[k].sort(key=lambda x: x["m"])
         d["tide"].sort(key=lambda x: x["m"])
 
-    if not any(d["current"] for d in days.values()):
-        raise RuntimeError(f"no current predictions for {span_a}..{span_b}")
+    for k in keys:
+        if not any(d[k] for d in days.values()):
+            raise RuntimeError(f"no current predictions in {k} for {span_a}..{span_b}")
     return days
 
 

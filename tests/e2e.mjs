@@ -36,6 +36,7 @@ const serve = () => spawn('python3', ['-m', 'http.server', String(PORT), '-d', D
   { stdio: 'ignore' });
 
 const settle = page => page.waitForTimeout(400);
+const hh = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 
 async function main() {
   if (!existsSync(DATA)) throw new Error('run generate.py and build.py first');
@@ -110,7 +111,15 @@ async function main() {
     /* ---- 5. the rose names each arrow by the colour it is actually drawn in ---- */
     /* Solid against dashed is hard to read at 118px, so the copy leads with the
        colour. The current arrow takes --flood or --ebb, so the word has to
-       follow the tide, and both hues have to survive the theme swap. */
+       follow the tide, and both hues have to survive the theme swap. The two
+       windows come from the data, one around a maximum flood and one around a
+       maximum ebb, so the test does not age out of the water window. */
+    const roseDate = bundle.waterDates[3];
+    const around = type => {
+      const e = bundle.water[roseDate].current.find(x => x.type === type && x.m >= 180 && x.m <= 1200);
+      return [hh(e.m - 60), hh(e.m + 60)];
+    };
+    const [fDep, fBack] = around('f'), [eDep, eBack] = around('e');
     const HUE = {
       light: { flood: '#15607F', ebb: '#9A5A12', wind: '#B01D6B' },
       dark:  { flood: '#5BB6D6', ebb: '#DFA05A', wind: '#F0629F' },
@@ -120,8 +129,8 @@ async function main() {
       await themed.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
       await settle(themed);
       for (const [tide, word, depart, back] of
-           [['flood', 'blue', '12:30', '15:30'], ['ebb', 'amber', '06:30', '09:30']]) {
-        await themed.fill('#f-date', '2026-09-02');
+           [['flood', 'blue', fDep, fBack], ['ebb', 'amber', eDep, eBack]]) {
+        await themed.fill('#f-date', roseDate);
         await themed.fill('#f-depart', depart);
         await themed.fill('#f-return', back);
         await themed.selectOption('#f-winddir', '247.5');
@@ -144,7 +153,57 @@ async function main() {
       await themed.close();
     }
 
-    /* ---- 6. a stale build raises the banner ---- */
+    /* ---- 6. the turn is drawn as a band across the three depth bins ---- */
+    /* The deep water turns first and the surface last. The page draws the
+       mid-depth slack as a dashed line and the spread as a grey band, and the
+       plan gives the spread as "between A and B". Recompute the expected band
+       from the data with the same rule: the nearest slack within three hours
+       that leads into the same set. */
+    const day = bundle.water[sailDate];
+    const mid = day.current;
+    const si = mid.findIndex((e, i) => e.type === 's' && e.m >= 150 && e.m <= 1250 && mid[i + 1] && mid[i + 1].type !== 's');
+    const sl = mid[si], to = mid[si + 1].type;
+    const match = other => {
+      let best = null;
+      other.forEach((e, k) => {
+        if (e.type !== 's' || Math.abs(e.m - sl.m) > 180) return;
+        const n = other[k + 1];
+        if (!(n && n.type === to)) return;
+        if (best === null || Math.abs(e.m - sl.m) < Math.abs(best - sl.m)) best = e.m;
+      });
+      return best;
+    };
+    const ms = [sl.m, match(day.currentDeep), match(day.currentSurface)].filter(x => x !== null);
+    const early = Math.min(...ms), late = Math.max(...ms);
+    await page.fill('#f-date', sailDate);
+    await page.fill('#f-depart', hh(sl.m - 90));
+    await page.fill('#f-return', hh(sl.m + 90));
+    await settle(page);
+    const bands = await page.$$eval('#strip rect.band', rs => rs.map(r => +r.getAttribute('width')));
+    const slackLabels = await page.$$eval('#strip text.slack', ts => ts.map(t => t.textContent));
+    const lead = await page.textContent('#rec-lead');
+    if (late - early >= 15) {
+      check('the bins disagree on this slack and the strip draws a band', bands.length === 1 && bands[0] > 0, JSON.stringify(bands));
+      check('the strip labels the slack with the spread',
+        slackLabels.includes(`slack ${hh(early)} to ${hh(late)}`), slackLabels.join(' | '));
+      check('the plan gives the turn as a spread',
+        lead.includes(`between ${hh(early)} and ${hh(late)}`), lead);
+    } else {
+      check('the bins agree on this slack and the strip draws no band', bands.length === 0, JSON.stringify(bands));
+      check('the plan gives the turn as one time', lead.includes(`at ${hh(sl.m)}`), lead);
+    }
+
+    /* ---- 7. the axis labels sit on the centreline, not in the corners ---- */
+    const axis = await page.$$eval('#strip text.axis', ts => ts.map(t => ({
+      t: t.textContent, x: +t.getAttribute('x'), y: +t.getAttribute('y') })));
+    check('the strip carries a flood label and an ebb label',
+      axis.length === 2 && axis[0].t.startsWith('FLOOD') && axis[1].t.startsWith('EBB'), JSON.stringify(axis));
+    check('the flood label sits above the ebb label at the same x',
+      axis.length === 2 && axis[0].y < axis[1].y && axis[0].x === axis[1].x, JSON.stringify(axis));
+    check('neither label is in the top corners', axis.every(a => a.y > 40), JSON.stringify(axis));
+    check('still no uncaught errors after the band', errors.length === 0, errors.join('; '));
+
+    /* ---- 8. a stale build raises the banner ---- */
     const stale = JSON.parse(original);
     stale.generated = new Date(Date.now() - 20 * 3600 * 1000)
       .toISOString().replace(/\.\d+Z$/, 'Z');
@@ -157,7 +216,7 @@ async function main() {
     check('the build-age banner appears', /20 hours old/.test(banner), banner);
     check('the build-age banner is marked stale', /stale/.test(bannerCls), bannerCls);
 
-    /* ---- 7. a missing data file does not leave a silent blank page ---- */
+    /* ---- 9. a missing data file does not leave a silent blank page ---- */
     writeFileSync(DATA, '{ not json');
     await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
     await settle(page);

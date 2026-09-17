@@ -133,6 +133,68 @@ test('the direction and the name follow the sign', () => {
   assert.equal(M.upDown(-1), 'down-river');
 });
 
+test('setAt names a leg by its maximum, however close to the slack', () => {
+  const tl = [ebb(0, 2), slack(180), flood(360, 1.5), slack(540)];
+  assert.equal(M.setAt(tl, 178), 'e');
+  assert.equal(M.setAt(tl, 182), 'f');
+  assert.equal(M.setAt(tl, 500), 'f');
+  assert.equal(M.setAt([slack(0), slack(100)], 50), 's');
+  assert.equal(M.setAt(tl, 900), null);
+});
+
+/* ---------------- the slack band across the depth bins ---------------- */
+test('slackBand spans the deep slack to the surface slack', () => {
+  const mid = [ebb(300, 2), slack(600), flood(900, 1.5)];
+  const deep = [ebb(280, 1), slack(540), flood(860, 1.4)];
+  const surf = [ebb(320, 2.2), slack(660), flood(930, 1.5)];
+  const b = M.slackBand(mid, 1, deep, surf);
+  assert.equal(b.m, 600);
+  assert.equal(b.to, 'f');
+  assert.equal(b.deep, 540);
+  assert.equal(b.surface, 660);
+  assert.equal(b.early, 540);
+  assert.equal(b.late, 660);
+});
+
+test('slackBand only matches a slack that leads into the same set', () => {
+  /* the surface has a slack into the ebb 20 minutes away and a slack into
+     the flood 100 minutes away: the second is the same turn */
+  const mid = [ebb(300, 2), slack(600), flood(900, 1.5)];
+  const surf = [flood(500, 0.3), slack(620), ebb(650, 0.2), slack(700), flood(950, 1.5)];
+  const b = M.slackBand(mid, 1, [], surf);
+  assert.equal(b.surface, 700);
+  assert.equal(b.late, 700);
+});
+
+test('slackBand takes the nearest of two candidates', () => {
+  const mid = [ebb(300, 2), slack(600), flood(900, 1.5)];
+  const deep = [slack(450), flood(500, 0.2), slack(570), flood(860, 1.4)];
+  const b = M.slackBand(mid, 1, deep, []);
+  assert.equal(b.deep, 570);
+});
+
+test('slackBand ignores a slack more than three hours away', () => {
+  const mid = [ebb(300, 2), slack(600), flood(900, 1.5)];
+  const deep = [slack(300), flood(500, 1)];
+  const b = M.slackBand(mid, 1, deep, undefined);
+  assert.equal(b.deep, null);
+  assert.equal(b.early, 600);
+  assert.equal(b.late, 600);
+});
+
+test('slackBand at the end of a timeline accepts any nearby slack', () => {
+  const mid = [ebb(300, 2), slack(600)];
+  const b = M.slackBand(mid, 1, [slack(560), ebb(700, 1)], []);
+  assert.equal(b.to, null);
+  assert.equal(b.deep, 560);
+});
+
+test('slackBand keeps the shape of a slack event', () => {
+  const b = M.slackBand([slack(600), flood(900, 1)], 0, [], []);
+  assert.equal(b.type, 's');
+  assert.equal(b.v, 0);
+});
+
 /* ---------------- the three-day timeline ---------------- */
 test('timeline shifts the neighbouring days by a whole day each', () => {
   setWater({
@@ -142,6 +204,17 @@ test('timeline shifts the neighbouring days by a whole day each', () => {
   });
   const tl = M.timeline('2026-09-01');
   assert.deepEqual(tl.map(e => e.m), [600 - 1440, 300, 600, 60 + 1440]);
+});
+
+test('timeline reads the other bins by key and defaults to the mid-depth one', () => {
+  Object.keys(M.WATER).forEach(k => delete M.WATER[k]);
+  Object.assign(M.WATER, {
+    '2026-09-01': { current: [slack(300)], currentDeep: [slack(240)], currentSurface: [slack(360)], tide: [] },
+  });
+  assert.deepEqual(M.timeline('2026-09-01').map(e => e.m), [300]);
+  assert.deepEqual(M.timeline('2026-09-01', 'currentDeep').map(e => e.m), [240]);
+  assert.deepEqual(M.timeline('2026-09-01', 'currentSurface').map(e => e.m), [360]);
+  assert.deepEqual(M.timeline('2026-09-01', 'nothing'), []);
 });
 
 test('timeline sorts the result', () => {

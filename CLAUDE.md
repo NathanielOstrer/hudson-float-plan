@@ -31,11 +31,13 @@ top-level `const` or `function` in the built page.
     python3 build.py                             # assemble docs/index.html
     python3 -m http.server 8020 -d docs
 
-    python3 -m unittest discover -s tests -t .   # 46 generator tests
-    node --test tests/*.test.js                  # 46 client model tests
+    python3 -m unittest discover -s tests -t .   # 51 generator tests
+    node --test tests/*.test.js                  # 55 client model tests
 
-Both suites run offline against recorded fixtures in `tests/fixtures`. Re-record
-them by rerunning the calls in `sources.py` against the live APIs.
+Both suites run offline against recorded fixtures in `tests/fixtures`. The
+current fixtures are one file per depth bin, `noaa_currents_bin{3,8,12}.json`,
+all for 1 to 3 September 2026. Re-record them by rerunning the calls in
+`sources.py` against the live APIs.
 
 End to end, against the built site in a real browser:
 
@@ -58,6 +60,19 @@ lives at `~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-mac/he
 - **The water window overhangs by a day at each end.** `timeline()` reads the day
   before and the day after the sail date, so the first and last generated dates
   are never selectable. `clampDateInput()` enforces that on the picker.
+- **The current comes from the 19 ft bin at Pier 92, and the turn is a band.**
+  NYH1928 is an ADCP station with three published depth bins, 6 ft, 19 ft and
+  35 ft, and on this stratified river they disagree by up to two hours on when
+  the flood begins: deep water first, surface last. The page first used the
+  6 ft bin. On 2026-09-17 a 10:00 to 13:00 sail met the flood at cast off while
+  that bin still said ebb until 11:14; the 19 ft bin said 10:22 and the NOAA
+  Tidal Current Chart for New York Harbor, keyed to the Battery tide, agreed
+  with the 19 ft bin. `generate.py` now reads all three bins. `current` is the
+  19 ft series and everything plans on it. `currentDeep` and `currentSurface`
+  exist only to bound each slack: `slackBand()` in `src/model.js` matches a
+  slack to the same turn in the other bins, and the strip and the plan give
+  the turn as "between A and B". Do not go back to a single bin, and do not
+  quote a slack to the minute.
 - **Flood sets 026° and runs up-river. Ebb sets 212° and runs down-river.** The
   ebb is stronger and longer than the flood, so a plan that beats the flood
   outbound can be impossible against the same day's ebb. `boatSpeed()` gates
@@ -83,6 +98,11 @@ lives at `~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-mac/he
   so an outside PR cannot read it. That protection breaks if a workflow ever uses
   `pull_request_target`, or if a PR that edits a workflow file gets merged. Do
   not add `pull_request_target`, and read workflow changes in every PR.
+- **The strip's axis labels sit on the centreline, one above and one below.**
+  In the top corners they read as a time axis, and on an ebb-then-flood day
+  the chart then said the opposite of the water. The tick labels take the
+  flood and ebb colours for the same reason: "1kt" below the line is one knot
+  of ebb, not a negative number.
 - **The rose names each arrow by its colour, not by solid against dashed.**
   Blue is the flood, amber is the ebb, pink is the wind. The current arrow takes
   `--flood` or `--ebb`, so the word in `renderRose()` has to follow the tide.
@@ -94,6 +114,13 @@ lives at `~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-mac/he
 
 ## Next steps
 
+- Log sails against the band. One observation so far: 2026-09-17, 10:00 to
+  13:00, flood felt from cast off, which is 20 minutes before even the 35 ft
+  bin's slack at 09:21 and an hour before the 19 ft line. That is one weak-range
+  day with a light southerly and a boat near the bank, so it is not yet a
+  reason to move the line. If a few more sails land early, move the planning
+  series to the deep bin or drop the surface bin from the band. Record each
+  sail as date, cast off, back, and what the boat felt at cast off.
 - Open the live site on a phone at the dock and confirm it is usable there.
   The deploy itself is verified: https://nathanielostrer.com/hudson-float-plan/
   serves the page and the data file, and the refresh workflow pushes as

@@ -42,7 +42,9 @@ NOAA_ROUTES = {
 class StubbedSources(unittest.TestCase):
     def setUp(self):
         self.routes = {
-            "currents_predictions": fixture("noaa_currents.json"),
+            "bin=12": fixture("noaa_currents_bin12.json"),
+            "bin=8": fixture("noaa_currents_bin8.json"),
+            "bin=3": fixture("noaa_currents_bin3.json"),
             "product=predictions": fixture("noaa_tides.json"),
             "gridpoints": fixture("nws_gridpoint.json"),
         }
@@ -129,7 +131,44 @@ class FetchWaterRange(unittest.TestCase):
         out = sources.fetch_water_range(date(2026, 9, 1), date(2026, 9, 3))
         for day, block in out.items():
             self.assertTrue(block["current"], day)
+            self.assertTrue(block["currentDeep"], day)
+            self.assertTrue(block["currentSurface"], day)
             self.assertTrue(block["tide"], day)
+
+    def test_each_series_comes_from_its_own_bin(self):
+        """The three bins turn at different times. The first slack of 1 Sept is
+        01:53 at 35 ft, 02:08 at 19 ft and 02:00 at 6 ft in the fixtures."""
+        out = sources.fetch_water_range(date(2026, 9, 1), date(2026, 9, 1))
+        day = out["2026-09-01"]
+        self.assertEqual(day["currentDeep"][0]["m"], 1 * 60 + 53)
+        self.assertEqual(day["current"][0]["m"], 2 * 60 + 8)
+        self.assertEqual(day["currentSurface"][0]["m"], 2 * 60 + 0)
+
+    def test_the_planning_series_is_the_mid_depth_bin(self):
+        self.assertEqual(sources.CURRENT_BIN, "8")
+        self.assertEqual(sources.META["currentBin"], "8")
+        self.assertEqual(sources.META["currentDepthFt"], 19)
+        self.assertEqual(set(sources.META["currentBins"]), {"surface", "mid", "deep"})
+
+    def test_each_bin_is_requested_once_with_its_own_number(self):
+        seen = []
+        real = sources.get_json
+
+        def spy(url):
+            seen.append(url)
+            return real(url)
+        sources.get_json = spy
+        sources.fetch_water_range(date(2026, 9, 1), date(2026, 9, 1))
+        bins = sorted(u.split("bin=")[1] for u in seen if "currents_predictions" in u)
+        self.assertEqual(bins, ["12", "3", "8"])
+
+    def test_one_empty_bin_raises(self):
+        """A bundle with a hole in one bin would draw a band from nothing.
+        Fail the whole read and let generate.py carry the previous file."""
+        self.routes["bin=3"] = {"current_predictions": {"cp": []}}
+        sources.get_json = stub_get_json(self.routes)
+        with self.assertRaises(RuntimeError):
+            sources.fetch_water_range(date(2026, 9, 1), date(2026, 9, 3))
 
     def test_a_date_outside_the_range_is_dropped(self):
         """The stub returns three days. Ask for one and keep one."""

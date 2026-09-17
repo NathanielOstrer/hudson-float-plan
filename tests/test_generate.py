@@ -43,7 +43,7 @@ class Stubbed(unittest.TestCase):
 
     def setUp(self):
         self._real = sources.get_json
-        cur = fixture("noaa_currents.json")
+        cur = fixture("noaa_currents_bin8.json")
         tide = fixture("noaa_tides.json")
         grid = fixture("nws_gridpoint.json")
 
@@ -141,6 +141,15 @@ class BundleShape(Stubbed):
         self.assertEqual(bundle["meta"]["ebbDir"], 212)
         self.assertEqual(bundle["meta"]["currentStation"], "NYH1928")
         self.assertEqual(bundle["meta"]["tideStation"], "8518750")
+        self.assertEqual(bundle["meta"]["currentBin"], "8")
+        self.assertEqual(bundle["meta"]["currentDepthFt"], 19)
+        self.assertEqual(bundle["meta"]["currentBins"]["deep"]["depthFt"], 35)
+
+    def test_every_water_date_carries_all_three_bins(self):
+        bundle, _ = generate.build(TODAY, {})
+        for d in bundle["waterDates"]:
+            for k in ("current", "currentDeep", "currentSurface"):
+                self.assertIn(k, bundle["water"][d], (d, k))
 
     def test_wind_dates_are_a_subset_of_the_water_window(self):
         bundle, _ = generate.build(TODAY, {})
