@@ -867,25 +867,36 @@ function buildPlan(A) {
        spread when there is one, so the skipper is not surprised by a flood
        that arrives an hour before the line on the chart says it will. */
     const spread = S.late - S.early >= 15;
-    lead = 'Go ' + axis(a.dir) + ' on the ' + a.name + '. Turn at slack water ' +
-      (spread ? 'between ' + hhmm(S.early) + ' and ' + hhmm(S.late) : 'at ' + hhmm(T)) + '. Ride the ' + b.name + ' home.';
-    why = 'The current turns inside your window. Go out with it. Turn at slack water. ' +
-      (spread ? 'The turn comes first in deep water and near the bank. It comes last at the surface in mid-river. ' : '') +
-      'The new ' + b.name + ' then pushes you back to Pier 66. Both legs run downstream.';
-    steps.push([hhmm(I.dep), 'Cast off. Go <em>' + axis(a.dir) + '</em>, ' + toward(a.dir) + '. The ' + a.name + ' gives you up to ' + Math.abs(a.peak).toFixed(1) + ' kt.']);
+    /* the band can start before cast off or end after the return, and a step
+       outside the window would print out of order */
+    const beganBefore = S.early <= I.dep + 10, endsAfter = S.late >= I.ret - 10;
+    if (spread && beganBefore) {
+      lead = 'The current is turning at cast off. It is ' + b.name + ' everywhere by ' + hhmm(S.late) + '. Go ' + axis(a.dir) + ' first. Ride the ' + b.name + ' home.';
+      why = 'The turn is under way when you cast off. The deep water and the bank turn first. The surface turns last. ' +
+        'The ' + a.name + ' is weak, so do not go far ' + axis(a.dir) + '. The new ' + b.name + ' then pushes you back to Pier 66.';
+    } else {
+      lead = 'Go ' + axis(a.dir) + ' on the ' + a.name + '. Turn at slack water ' +
+        (spread ? 'between ' + hhmm(S.early) + ' and ' + hhmm(S.late) : 'at ' + hhmm(T)) + '. Ride the ' + b.name + ' home.';
+      why = 'The current turns inside your window. Go out with it. Turn at slack water. ' +
+        (spread ? 'The turn comes first in deep water and near the bank. It comes last at the surface in mid-river. ' : '') +
+        'The new ' + b.name + ' then pushes you back to Pier 66. Both legs run downstream.';
+    }
+    steps.push([hhmm(I.dep), 'Cast off. Go <em>' + axis(a.dir) + '</em>, ' + toward(a.dir) + '. The ' + a.name + ' gives you up to ' + Math.abs(a.peak).toFixed(1) + ' kt.'
+      + (spread && beganBefore ? ' The deep water is already turning to the ' + b.name + '.' : '')]);
     if (S.early - 20 > I.dep + 10) steps.push([hhmm(S.early - 20), 'Turn back. The current is weak from this time.']);
     if (spread) {
-      steps.push([hhmm(S.early), 'Slack water begins. The deep water and the bank turn first.']);
-      steps.push([hhmm(S.late), 'Slack water ends. The surface turns last. Expect the ' + b.name + ' everywhere from here.']);
+      if (!beganBefore) steps.push([hhmm(S.early), 'Slack water begins. The deep water and the bank turn first.']);
+      if (!endsAfter) steps.push([hhmm(S.late), 'Slack water ends. The surface turns last. Expect the ' + b.name + ' everywhere from here.']);
     } else {
       steps.push([hhmm(T), 'Slack water. Turn here.']);
     }
-    steps.push([hhmm(I.ret), 'Come alongside. The ' + b.name + ' gives you up to ' + Math.abs(b.peak).toFixed(1) + ' kt. Approach into it.']);
+    steps.push([hhmm(I.ret), 'Come alongside. The ' + b.name + ' gives you up to ' + Math.abs(b.peak).toFixed(1) + ' kt. Approach into it.'
+      + (spread && endsAfter ? ' The surface is still turning until ' + hhmm(S.late) + '. Expect weak current at the dock.' : '')]);
   } else {
     lead = 'The current turns ' + slacks.length + ' times in your window.';
     why = 'The window is too long for one strategy. Plan each leg around the slack times below. Each turn comes first in deep water and last at the surface.';
     steps.push([hhmm(I.dep), 'Cast off on the ' + phases[0].name + '. Go <em>' + axis(phases[0].dir) + '</em>.']);
-    slacks.forEach((sl, i) => steps.push([hhmm(sl.early),
+    slacks.forEach((sl, i) => steps.push([hhmm(Math.max(sl.early, I.dep + 5)),
       'Slack water' + (sl.late - sl.early >= 15 ? ', until ' + hhmm(sl.late) + ' at the surface' : '') +
       '. The current turns to ' + phases[i + 1].name + '. It sets <em>' + axis(phases[i + 1].dir) + '</em>, up to ' + Math.abs(phases[i + 1].peak).toFixed(1) + ' kt.']));
     steps.push([hhmm(I.ret), 'Come alongside.']);

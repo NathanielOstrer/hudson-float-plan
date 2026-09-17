@@ -193,6 +193,29 @@ async function main() {
       check('the plan gives the turn as one time', lead.includes(`at ${hh(sl.m)}`), lead);
     }
 
+    /* the steps must stay in time order however the band falls against the
+       window: with the deep slack before cast off, and the surface slack
+       after the return */
+    const stepsInOrder = async () => {
+      const whens = await page.$$eval('#rec-steps .when', ws => ws.map(w => w.textContent));
+      const mins = whens.map(w => +w.slice(0, 2) * 60 + +w.slice(3, 5));
+      return { whens, ok: mins.every((m, i) => i === 0 || m >= mins[i - 1]) };
+    };
+    for (const [dep, back, why] of [
+      [hh(sl.m - 90), hh(sl.m + 90), 'band inside the window'],
+      [hh(Math.min(sl.m - 30, early + 20)), hh(sl.m + 90), 'deep slack before cast off'],
+      [hh(sl.m - 90), hh(Math.max(sl.m + 30, late - 20)), 'surface slack after the return'],
+    ]) {
+      await page.fill('#f-depart', dep);
+      await page.fill('#f-return', back);
+      await settle(page);
+      const r = await stepsInOrder();
+      check(`the plan steps stay in time order: ${why}`, r.ok, r.whens.join(' > '));
+    }
+    await page.fill('#f-depart', hh(sl.m - 90));
+    await page.fill('#f-return', hh(sl.m + 90));
+    await settle(page);
+
     /* ---- 7. the axis labels sit on the centreline, not in the corners ---- */
     const axis = await page.$$eval('#strip text.axis', ts => ts.map(t => ({
       t: t.textContent, x: +t.getAttribute('x'), y: +t.getAttribute('y') })));
